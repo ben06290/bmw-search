@@ -6,7 +6,6 @@ import urllib.request
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
-# 自訂 CSS：放大輸入框字體與優化按鈕樣式
 st.markdown("""
     <style>
     .stTextInput input {
@@ -52,22 +51,19 @@ def clean_phone(raw_val):
         return "0" + digits
     return digits
 
-# 💡【修復1】完全放寬車牌，絕不刪除任何有資料的車牌
-def is_valid_plate(plate_str):
-    s = safe_str(plate_str).upper()
-    clean_s = re.sub(r"[^A-ZA-Z0-9]", "", s)
-    if len(clean_s) < 2 or len(clean_s) > 12:
-        return False, ""
-    
-    # 格式化顯示 (有英有數才加短橫線)
-    if len(clean_s) == 7 and clean_s[:3].isalpha() and clean_s[3:].isdigit():
-        return True, f"{clean_s[:3]}-{clean_s[3:]}"
-    elif len(clean_s) == 6 and clean_s[:2].isalpha() and clean_s[2:].isdigit():
-        return True, f"{clean_s[:2]}-{clean_s[2:]}"
-    elif len(clean_s) == 6 and clean_s[:4].isdigit() and clean_s[4:].isalpha():
-        return True, f"{clean_s[:4]}-{clean_s[4:]}"
-    
-    return True, s
+def is_plate_format(val_str):
+    s = re.sub(r"[^A-Za-z0-9]", "", safe_str(val_str)).upper()
+    # 只要包含英數且長度介於 5 到 8 碼，就是車牌
+    if 5 <= len(s) <= 8 and any(c.isalpha() for c in s) and any(c.isdigit() for c in s):
+        # 格式化輸出
+        if len(s) == 7 and s[:3].isalpha() and s[3:].isdigit():
+            return True, f"{s[:3]}-{s[3:]}"
+        elif len(s) == 6 and s[:2].isalpha() and s[2:].isdigit():
+            return True, f"{s[:2]}-{s[2:]}"
+        elif len(s) == 6 and s[:4].isdigit() and s[4:].isalpha():
+            return True, f"{s[:4]}-{s[4:]}"
+        return True, safe_str(val_str).upper()
+    return False, ""
 
 def format_time_val(t_val):
     s = safe_str(t_val)
@@ -84,11 +80,6 @@ def extract_month_from_sheets(sheet_names):
         m = re.search(r"(\d{1,2})(\d{2})", name)
         if m:
             month = int(m.group(1))
-            if 1 <= month <= 12:
-                return f"{month} 月"
-        m2 = re.search(r"(\d{1,2})[/月]", name)
-        if m2:
-            month = int(m2.group(1))
             if 1 <= month <= 12:
                 return f"{month} 月"
     return "當月"
@@ -118,58 +109,56 @@ def fetch_and_parse(target_url):
                 if len(df) < 2:
                     continue
 
-                for i in range(0, len(df) - 1):
-                    r1 = df.iloc[i]
-                    r2 = df.iloc[i + 1]
-
-                    # 1. 快保 (擴大欄位搜尋範圍 col_idx 0~8)
-                    seq_kb = safe_str(r1.iloc[0]) if len(r1) > 0 else ""
-                    if seq_kb.replace(".", "").isdigit():
-                        for col_idx in range(1, min(8, len(r1))):
-                            cell_val = r1.iloc[col_idx]
-                            ok, formatted_plate = is_valid_plate(cell_val)
-                            if ok:
-                                advisor_kb = safe_str(r1.iloc[16]) if len(r1) > 16 else ""
-                                service_kb = safe_str(r1.iloc[5]) if len(r1) > 5 else ""
-                                if "取消" not in advisor_kb and "取消" not in service_kb:
-                                    all_records.append({
-                                        "sheet": sheet_name,
-                                        "type": "快保",
-                                        "seq": seq_kb,
-                                        "time": format_time_val(r1.iloc[1]) if len(r1) > 1 else "",
-                                        "plate": formatted_plate,
-                                        "phone": clean_phone(r2.iloc[col_idx + 1]) if len(r2) > (col_idx + 1) else "",
-                                        "name": safe_str(r1.iloc[3]) if len(r1) > 3 else "",
-                                        "model": safe_str(r2.iloc[4]) if len(r2) > 4 else "",
-                                        "advisor": advisor_kb,
-                                        "service": service_kb
-                                    })
-                                break
-
-                    # 2. 一般維修 (擴大欄位搜尋範圍 col_idx 18~26)
-                    if len(r1) > 18:
-                        seq_yb = safe_str(r1.iloc[18])
-                        if seq_yb.replace(".", "").isdigit():
-                            for col_idx in range(19, min(26, len(r1))):
-                                cell_val = r1.iloc[col_idx]
-                                ok, formatted_plate = is_valid_plate(cell_val)
-                                if ok:
-                                    advisor_yb = safe_str(r1.iloc[34]) if len(r1) > 34 else ""
-                                    service_yb = safe_str(r1.iloc[23]) if len(r1) > 23 else ""
-                                    if "取消" not in advisor_yb and "取消" not in service_yb:
-                                        all_records.append({
-                                            "sheet": sheet_name,
-                                            "type": "一般",
-                                            "seq": seq_yb,
-                                            "time": format_time_val(r1.iloc[19]) if len(r1) > 19 else "",
-                                            "plate": formatted_plate,
-                                            "phone": clean_phone(r2.iloc[col_idx + 1]) if len(r2) > (col_idx + 1) else "",
-                                            "name": safe_str(r1.iloc[21]) if len(r1) > 21 else "",
-                                            "model": safe_str(r2.iloc[22]) if len(r2) > 22 else "",
-                                            "advisor": advisor_yb,
-                                            "service": service_yb
-                                        })
+                # 逐列檢查試算表（全面搜尋，不設定限制性的步階）
+                for i in range(len(df)):
+                    row = df.iloc[i]
+                    # 搜尋這一列中所有儲存格，找尋車牌
+                    for col_idx in range(len(row)):
+                        cell_val = row.iloc[col_idx]
+                        is_plate, plate_num = is_plate_format(cell_val)
+                        if is_plate:
+                            # 抓到車牌後，從同列與下一列收集周圍的相關資訊
+                            seq_val = safe_str(row.iloc[0]) if col_idx > 0 else ""
+                            time_val = format_time_val(row.iloc[1]) if len(row) > 1 else ""
+                            
+                            # 尋找電話號碼 (同列或下一列)
+                            phone_val = ""
+                            next_row = df.iloc[i + 1] if i + 1 < len(df) else None
+                            
+                            # 先找同列
+                            for c in range(len(row)):
+                                p = clean_phone(row.iloc[c])
+                                if len(p) >= 9:
+                                    phone_val = p
                                     break
+                            # 同列沒找到再找下一列
+                            if not phone_val and next_row is not None:
+                                for c in range(len(next_row)):
+                                    p = clean_phone(next_row.iloc[c])
+                                    if len(p) >= 9:
+                                        phone_val = p
+                                        break
+
+                            # 接待與維修項目 (盡量抓非空字串)
+                            advisor = safe_str(row.iloc[16]) if len(row) > 16 else (safe_str(row.iloc[6]) if len(row) > 6 else "")
+                            service = safe_str(row.iloc[5]) if len(row) > 5 else (safe_str(row.iloc[7]) if len(row) > 7 else "")
+                            name_val = safe_str(row.iloc[3]) if len(row) > 3 else ""
+                            model_val = safe_str(row.iloc[4]) if len(row) > 4 else ""
+
+                            if "取消" not in advisor and "取消" not in service:
+                                all_records.append({
+                                    "sheet": sheet_name,
+                                    "type": "快保" if col_idx < 10 else "一般",
+                                    "seq": seq_val,
+                                    "time": time_val,
+                                    "plate": plate_num,
+                                    "phone": phone_val,
+                                    "name": name_val,
+                                    "model": model_val,
+                                    "advisor": advisor,
+                                    "service": service
+                                })
+                            break # 該列已找到車牌，處理下一列
             except Exception:
                 continue
 
@@ -177,7 +166,7 @@ def fetch_and_parse(target_url):
     except Exception as e:
         return [], "未知", str(e)
 
-# 初始化 Session State
+# Session State
 if "records" not in st.session_state:
     st.session_state.records = []
 if "detected_month" not in st.session_state:
@@ -223,7 +212,7 @@ elif st.session_state.load_status.startswith("error"):
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 (雙向清理的比對) ---
+# --- 2. 搜尋區塊 ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
@@ -234,15 +223,12 @@ if submit_button or raw_query:
     if not st.session_state.records:
         st.warning("⚠️ 請先在上方點擊「📥 確定載入試算表」！")
     elif raw_query:
-        # 只保留純英數字比對
         clean_q = re.sub(r"[^A-Za-z0-9]", "", raw_query).upper()
 
         results = []
         for r in st.session_state.records:
             rec_plate_clean = re.sub(r"[^A-Za-z0-9]", "", r["plate"]).upper()
-            
-            # 只要清除符號後的關鍵字包含在車牌裡即命中
-            if clean_q and clean_q in rec_plate_clean:
+            if clean_q in rec_plate_clean:
                 results.append(r)
 
         if results:
@@ -258,7 +244,7 @@ if submit_button or raw_query:
                     with c2:
                         st.write(f"🏎️ **車型**：{r['model']}")
                         st.write(f"👨‍💼 **接待人員**：{r['advisor']}")
-                        st.write(f"🛠️ **類別與序號**：{r['type']} #{r['seq']}")
+                        st.write(f"🛠️ **類別**：{r['type']}")
                     st.write(f"📋 **維修項目**：{r['service']}")
         else:
             st.info(f"ℹ️ 查無車牌包含「{raw_query}」的預約紀錄。")

@@ -6,11 +6,11 @@ import urllib.request
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
-# 自訂 CSS：放大輸入框字體與按鈕
+# 自訂 CSS：放大輸入框字體與優化按鈕樣式
 st.markdown("""
     <style>
     .stTextInput input {
-        font-size: 20px !important;
+        font-size: 19px !important;
         font-weight: bold !important;
         padding: 10px !important;
     }
@@ -94,21 +94,13 @@ def extract_month_from_sheets(sheet_names):
                 return f"{month} 月"
     return "當月"
 
-@st.cache_data(ttl=300)
 def fetch_and_parse(target_url):
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", target_url)
     if not match:
-        return [], "未知", "網址格式不正確"
+        return [], "未知", "網址格式不正確，找不到試算表 ID"
 
     sheet_id = match.group(1)
-    
-    # 抽取網址中的 gid
-    gid_match = re.search(r"[?&]gid=(\d+)", target_url)
-    if gid_match:
-        gid_str = gid_match.group(1)
-        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx&gid={gid_str}"
-    else:
-        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+    export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
     try:
         req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
@@ -181,29 +173,52 @@ def fetch_and_parse(target_url):
     except Exception as e:
         return [], "未知", str(e)
 
-# --- 1. 選擇月份/網址區塊 ---
-selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
+# 初始化 Session State 儲存快取紀錄
+if "records" not in st.session_state:
+    st.session_state.records = []
+if "detected_month" not in st.session_state:
+    st.session_state.detected_month = ""
+if "load_status" not in st.session_state:
+    st.session_state.load_status = ""
 
-if selected_option == "自訂其他網址":
-    input_url = st.text_input("請貼上 Google 預約表網址：", value="")
-else:
-    input_url = MONTH_URLS[selected_option]
+# --- 1. 網址設定與確定載入區塊 (Form 容器) ---
+with st.form(key="url_form"):
+    selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
 
-records = []
-detected_month = ""
-
-if input_url:
-    records, detected_month, err_msg = fetch_and_parse(input_url)
-    if err_msg:
-        st.error(f"❌ 讀取失敗：{err_msg}，請確認試算表共用權限為「知道連結的人皆可檢視」。")
-    elif not records:
-        st.warning("⚠️ 試算表已讀取，但未解析出有效資料，請點擊上方重新選擇月份。")
+    if selected_option == "自訂其他網址":
+        input_url = st.text_input("請貼上 Google 預約表網址：", value="")
     else:
-        st.success(f"✅ 預約表載入成功！這是【{detected_month}】的預約表，共解析出 {len(records)} 筆紀錄。")
+        input_url = MONTH_URLS[selected_option]
+        st.text_input("試算表網址：", value=input_url, key="readonly_url", disabled=True)
+
+    btn_load_url = st.form_submit_button(label="📥 確定載入試算表")
+
+# 按下「確定載入試算表」時執行解析
+if btn_load_url and input_url:
+    with st.spinner("正在下載並解析預約表資料，請稍候..."):
+        recs, mon, err = fetch_and_parse(input_url)
+        if err:
+            st.session_state.load_status = f"error: {err}"
+            st.session_state.records = []
+        elif not recs:
+            st.session_state.load_status = "empty"
+            st.session_state.records = []
+        else:
+            st.session_state.load_status = "success"
+            st.session_state.records = recs
+            st.session_state.detected_month = mon
+
+# 狀態提示
+if st.session_state.load_status == "success":
+    st.success(f"✅ 預約表載入成功！這是【{st.session_state.detected_month}】的預約表，共解析出 {len(st.session_state.records)} 筆紀錄。")
+elif st.session_state.load_status == "empty":
+    st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料，請確認網址或權限是否為「知道連結的人皆可檢視」。")
+elif st.session_state.load_status.startswith("error"):
+    st.error(f"❌ 讀取失敗：{st.session_state.load_status.replace('error: ', '')}")
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 (表單與確定按鈕) ---
+# --- 2. 搜尋區塊 (表單與確定搜尋按鈕) ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
@@ -211,19 +226,19 @@ with st.form(key="search_form"):
     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
 if submit_button or raw_query:
-    if not records:
-        st.warning("請先確認上方預約表已成功載入！")
+    if not st.session_state.records:
+        st.warning("⚠️ 請先在上方選擇月份並點擊「📥 確定載入試算表」！")
     elif raw_query:
         clean_q = raw_query.upper().replace(" ", "").replace("-", "")
 
         results = []
-        for r in records:
+        for r in st.session_state.records:
             rec_plate_clean = r["plate"].upper().replace(" ", "").replace("-", "")
             if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
                 results.append(r)
 
         if results:
-            st.success(f"🎯 找到 {len(results)} 筆相符車牌紀錄：")
+            st.success(f"🎯 成功找到 {len(results)} 筆相符車牌紀錄：")
             for r in results:
                 with st.expander(f"📅 預約日期：{r['sheet']} | 車牌：{r['plate']} ({r['type']})", expanded=True):
                     c1, c2 = st.columns(2)

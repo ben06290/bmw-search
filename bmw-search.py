@@ -40,15 +40,6 @@ def clean_plate(plate_str):
         return f"{s[:2]}-{s[2:]}"
     return s
 
-def clean_advisor_name(raw_str):
-    if not raw_str:
-        return ""
-    s = str(raw_str).strip()
-    parts = re.split(r"[\s\(/（]", s)
-    first_part = parts[0]
-    first_part = re.sub(r"改\d*(/\d*)*", "", first_part)
-    return first_part if first_part else s
-
 def format_time_val(t_val):
     if not t_val:
         return ""
@@ -100,19 +91,23 @@ def parse_all_records(excel_bytes):
                         plate = clean_plate(safe_get(r1, 2))
                         if plate:
                             raw_phone = r2[3] if 3 in r2.index else None
-                            raw_advisor_kb = safe_get(r1, 16) # Q 欄
-                            all_records.append({
-                                "sheet": sheet_name,
-                                "type": "快保",
-                                "seq": str(seq_num),
-                                "time": format_time_val(safe_get(r1, 1)),
-                                "plate": plate,
-                                "phone": clean_phone(raw_phone),
-                                "name": safe_get(r1, 3),
-                                "model": safe_get(r2, 4),
-                                "advisor": clean_advisor_name(raw_advisor_kb),
-                                "service": safe_get(r1, 5) # F 欄
-                            })
+                            advisor_kb = safe_get(r1, 16)  # Q 欄 (Col index 16)
+                            service_kb = safe_get(r1, 5)   # F 欄 (Col index 5)
+
+                            is_cancelled = ("取消" in advisor_kb) or ("取消" in service_kb)
+                            if not is_cancelled:
+                                all_records.append({
+                                    "sheet": sheet_name,
+                                    "type": "快保",
+                                    "seq": str(seq_num),
+                                    "time": format_time_val(safe_get(r1, 1)),
+                                    "plate": plate,
+                                    "phone": clean_phone(raw_phone),
+                                    "name": safe_get(r1, 3),
+                                    "model": safe_get(r2, 4),
+                                    "advisor": advisor_kb,
+                                    "service": service_kb
+                                })
 
                 # 2. 一般 (右側)
                 seq_raw_yb = safe_get(r1, 18)
@@ -122,19 +117,23 @@ def parse_all_records(excel_bytes):
                         plate_yb = clean_plate(safe_get(r1, 20))
                         if plate_yb:
                             raw_phone_yb = r2[21] if 21 in r2.index else None
-                            raw_advisor_yb = safe_get(r1, 34) # AI 欄
-                            all_records.append({
-                                "sheet": sheet_name,
-                                "type": "一般",
-                                "seq": str(seq_num_yb),
-                                "time": format_time_val(safe_get(r1, 19)),
-                                "plate": plate_yb,
-                                "phone": clean_phone(raw_phone_yb),
-                                "name": safe_get(r1, 21),
-                                "model": safe_get(r2, 22),
-                                "advisor": clean_advisor_name(raw_advisor_yb),
-                                "service": safe_get(r1, 23) # X 欄
-                            })
+                            advisor_yb = safe_get(r1, 34)  # AI 欄 (Col index 34)
+                            service_yb = safe_get(r1, 23)  # X 欄 (Col index 23)
+
+                            is_cancelled = ("取消" in advisor_yb) or ("取消" in service_yb)
+                            if not is_cancelled:
+                                all_records.append({
+                                    "sheet": sheet_name,
+                                    "type": "一般",
+                                    "seq": str(seq_num_yb),
+                                    "time": format_time_val(safe_get(r1, 19)),
+                                    "plate": plate_yb,
+                                    "phone": clean_phone(raw_phone_yb),
+                                    "name": safe_get(r1, 21),
+                                    "model": safe_get(r2, 22),
+                                    "advisor": advisor_yb,
+                                    "service": service_yb
+                                })
         except Exception:
             continue
 
@@ -164,6 +163,7 @@ if sheet_url:
             if query:
                 results = []
                 for rec in records:
+                    # 嚴格僅比對車牌號碼
                     plate_clean = rec["plate"].replace("-", "")
                     if query in plate_clean or query in rec["plate"]:
                         results.append(rec)

@@ -67,6 +67,7 @@ def parse_all_records(excel_bytes):
         try:
             df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
 
+            # 動態取得快保/一般上限（預設 46 與 14）
             max_kb, max_yb = 46, 14
             for r_idx in range(3, min(7, len(df))):
                 row = df.iloc[r_idx]
@@ -79,6 +80,7 @@ def parse_all_records(excel_bytes):
                 if m_yb:
                     max_yb = int(m_yb.group(1))
 
+            # 雙行掃描
             for i in range(7, len(df) - 1, 2):
                 r1 = df.iloc[i]
                 r2 = df.iloc[i + 1]
@@ -88,26 +90,25 @@ def parse_all_records(excel_bytes):
                 if is_valid_seq(seq_raw_kb):
                     seq_num = int(float(seq_raw_kb))
                     if 1 <= seq_num <= max_kb:
-                        plate = clean_plate(safe_get(r1, 2))
-                        if plate:
-                            raw_phone = r2[3] if 3 in r2.index else None
-                            advisor_kb = safe_get(r1, 16)  # Q 欄 (Col index 16)
-                            service_kb = safe_get(r1, 5)   # F 欄 (Col index 5)
+                        plate_kb = clean_plate(safe_get(r1, 2))
+                        advisor_kb = safe_get(r1, 16)
+                        service_kb = safe_get(r1, 5)
+                        raw_phone_kb = r2[3] if 3 in r2.index else None
 
-                            is_cancelled = ("取消" in advisor_kb) or ("取消" in service_kb)
-                            if not is_cancelled:
-                                all_records.append({
-                                    "sheet": sheet_name,
-                                    "type": "快保",
-                                    "seq": str(seq_num),
-                                    "time": format_time_val(safe_get(r1, 1)),
-                                    "plate": plate,
-                                    "phone": clean_phone(raw_phone),
-                                    "name": safe_get(r1, 3),
-                                    "model": safe_get(r2, 4),
-                                    "advisor": advisor_kb,
-                                    "service": service_kb
-                                })
+                        is_cancelled = ("取消" in advisor_kb) or ("取消" in service_kb)
+                        if not is_cancelled and plate_kb:
+                            all_records.append({
+                                "sheet": sheet_name,
+                                "type": "快保",
+                                "seq": str(seq_num),
+                                "time": format_time_val(safe_get(r1, 1)),
+                                "plate": plate_kb,
+                                "phone": clean_phone(raw_phone_kb),
+                                "name": safe_get(r1, 3),
+                                "model": safe_get(r2, 4),
+                                "advisor": advisor_kb,
+                                "service": service_kb
+                            })
 
                 # 2. 一般 (右側)
                 seq_raw_yb = safe_get(r1, 18)
@@ -115,25 +116,24 @@ def parse_all_records(excel_bytes):
                     seq_num_yb = int(float(seq_raw_yb))
                     if 1 <= seq_num_yb <= max_yb:
                         plate_yb = clean_plate(safe_get(r1, 20))
-                        if plate_yb:
-                            raw_phone_yb = r2[21] if 21 in r2.index else None
-                            advisor_yb = safe_get(r1, 34)  # AI 欄 (Col index 34)
-                            service_yb = safe_get(r1, 23)  # X 欄 (Col index 23)
+                        advisor_yb = safe_get(r1, 34)
+                        service_yb = safe_get(r1, 23)
+                        raw_phone_yb = r2[21] if 21 in r2.index else None
 
-                            is_cancelled = ("取消" in advisor_yb) or ("取消" in service_yb)
-                            if not is_cancelled:
-                                all_records.append({
-                                    "sheet": sheet_name,
-                                    "type": "一般",
-                                    "seq": str(seq_num_yb),
-                                    "time": format_time_val(safe_get(r1, 19)),
-                                    "plate": plate_yb,
-                                    "phone": clean_phone(raw_phone_yb),
-                                    "name": safe_get(r1, 21),
-                                    "model": safe_get(r2, 22),
-                                    "advisor": advisor_yb,
-                                    "service": service_yb
-                                })
+                        is_cancelled = ("取消" in advisor_yb) or ("取消" in service_yb)
+                        if not is_cancelled and plate_yb:
+                            all_records.append({
+                                "sheet": sheet_name,
+                                "type": "一般",
+                                "seq": str(seq_num_yb),
+                                "time": format_time_val(safe_get(r1, 19)),
+                                "plate": plate_yb,
+                                "phone": clean_phone(raw_phone_yb),
+                                "name": safe_get(r1, 21),
+                                "model": safe_get(r2, 22),
+                                "advisor": advisor_yb,
+                                "service": service_yb
+                            })
         except Exception:
             continue
 
@@ -152,18 +152,21 @@ if sheet_url:
 
         try:
             req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=30) as response:
+            with urllib.request.urlopen(req, timeout=60) as response:
                 content = response.read()
 
             records = parse_all_records(io.BytesIO(content))
-            st.success(f"預約表載入成功！共解析出 {len(records)} 筆車輛預約紀錄。")
+            
+            if len(records) == 0:
+                st.error("⚠️ 預約表載入失敗，沒有解析到任何資料，請確認試算表格式或連結！")
+            else:
+                st.success(f"預約表載入成功！共解析出 {len(records)} 筆車輛預約紀錄。")
 
-            query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：AQL-8828 或 8828)：").strip().upper().replace(" ", "").replace("-", "")
+            query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：BFG-0989 或 0989)：").strip().upper().replace(" ", "").replace("-", "")
 
             if query:
                 results = []
                 for rec in records:
-                    # 嚴格僅比對車牌號碼
                     plate_clean = rec["plate"].replace("-", "")
                     if query in plate_clean or query in rec["plate"]:
                         results.append(rec)

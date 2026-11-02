@@ -6,13 +6,18 @@ import urllib.request
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
-# 隱藏 Streamlit 預設的 Share、GitHub 圖示、右上角選單及右下角 Manage app 按鈕
+# 隱藏電腦與手機版所有 Streamlit 預設選單、頂部裝飾、以及右下角的 Hosted with Streamlit 標誌
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
-    .viewerBadge_container__1QSob, [data-testid="stDecoration"] {
+    .viewerBadge_container__1QSob, [data-testid="stDecoration"], footer {
         display: none !important;
+    }
+    /* 針對手機版右下角懸浮按鈕（Hosted with Streamlit）的隱藏防護 */
+    div[class*="viewerBadge"] {
+        display: none !important;
+        visibility: hidden !important;
     }
     .stTextInput input {
         font-size: 19px !important;
@@ -122,7 +127,6 @@ def fetch_and_parse(target_url):
                             seq_val = safe_str(row.iloc[0]) if col_idx > 0 else ""
                             time_val = format_time_val(row.iloc[1]) if len(row) > 1 else ""
                             
-                            # 尋找電話號碼
                             phone_val = ""
                             next_row = df.iloc[i + 1] if i + 1 < len(df) else None
                             
@@ -151,7 +155,6 @@ def fetch_and_parse(target_url):
 
                             name_val = safe_str(row.iloc[3] if not is_general else row.iloc[21])
 
-                            # 洗淨接待人員欄位（取斜線前或精確擷取單字）
                             advisor = advisor_raw.split("/")[0].strip() if advisor_raw else ""
                             if len(advisor) > 4:
                                 advisor = advisor_raw[0:2]
@@ -177,7 +180,6 @@ def fetch_and_parse(target_url):
     except Exception as e:
         return [], "未知", str(e)
 
-# Session State
 if "records" not in st.session_state:
     st.session_state.records = []
 if "detected_month" not in st.session_state:

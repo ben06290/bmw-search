@@ -29,7 +29,7 @@ def clean_plate(plate_str):
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
     if not s or len(s) < 5:
         return ""
-    # 車牌格式過濾：包含英數字
+    # 標準車牌格式化 (帶連字符)
     if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
         return f"{s[:3]}-{s[3:]}"
     elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
@@ -62,13 +62,11 @@ def parse_all_records(excel_bytes):
                 r1 = df.iloc[i]
                 r2 = df.iloc[i + 1]
 
-                # --- 1. 快保區塊（掃描第 0~15 欄） ---
+                # --- 1. 快保區塊（左側） ---
                 row1_text_kb = " ".join([safe_str(v) for v in r1.iloc[:16]])
-                # 判斷是否包含車牌特徵
                 for col_idx in range(2, min(5, len(r1))):
                     candidate_plate = clean_plate(r1.iloc[col_idx])
                     if candidate_plate:
-                        # 排除取消字眼
                         if "取消" not in row1_text_kb:
                             all_records.append({
                                 "sheet": sheet_name,
@@ -84,7 +82,7 @@ def parse_all_records(excel_bytes):
                             })
                         break
 
-                # --- 2. 一般區塊（掃描第 18~35 欄） ---
+                # --- 2. 一般區塊（右側） ---
                 if len(r1) > 20:
                     row1_text_yb = " ".join([safe_str(v) for v in r1.iloc[18:]])
                     for col_idx in range(19, min(23, len(r1))):
@@ -113,7 +111,7 @@ def parse_all_records(excel_bytes):
 # 介面流程
 input_url = st.text_input(
     "請貼上 Google 預約表網址：", 
-    value="https://docs.google.com/spreadsheets/d/1obpjM1JB8c5wSyC0WNL6qGc-xyo5qDhhF1TiuFPtAxo/edit"
+    value="https://docs.google.com/spreadsheets/d/1cUzfaS_SN7sYhmWDVZv__yB92JY8pXjfeb1PjrvB8dc/edit?gid=566275317#gid=566275317"
 )
 
 if input_url:
@@ -123,7 +121,6 @@ if input_url:
         st.error("❌ 無法辨識此 Google 試算表網址，請確認網址格式。")
     else:
         sheet_id = match.group(1)
-        # 強制構造標準 export URL，排除 #gid 與 edit 等影響
         export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
         try:
@@ -138,16 +135,23 @@ if input_url:
             else:
                 st.success(f"✅ 預約表載入成功！全表共解析出 {len(records)} 筆預約紀錄。")
 
-                query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：BFG-0989 或 0989)：").strip().upper().replace(" ", "").replace("-", "")
+                raw_query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：EBE-5698、ebe5698、5698)：").strip()
 
-                if query:
-                    results = [
-                        r for r in records 
-                        if query in r["plate"].upper().replace("-", "") or query in r["plate"].upper()
-                    ]
+                if raw_query:
+                    # 將搜尋字串純化 (轉大寫、去空格、去連字符)
+                    clean_q = raw_query.upper().replace(" ", "").replace("-", "")
+
+                    results = []
+                    for r in records:
+                        # 嚴格只針對車牌欄位 (rec['plate']) 進行純化比對
+                        rec_plate_clean = r["plate"].upper().replace(" ", "").replace("-", "")
+                        
+                        # 符合任一條件即命中 (包含純化後車牌或標準格式車牌)
+                        if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
+                            results.append(r)
 
                     if results:
-                        st.markdown(f"### 🎯 找到 {len(results)} 筆相符預約紀錄：")
+                        st.markdown(f"### 🎯 找到 {len(results)} 筆相符車牌紀錄：")
                         for r in results:
                             with st.expander(f"📅 預約日期：{r['sheet']} | 車牌：{r['plate']} ({r['type']})", expanded=True):
                                 c1, c2 = st.columns(2)
@@ -162,7 +166,7 @@ if input_url:
                                     st.write(f"🛠️ **類別與序號**：{r['type']} #{r['seq']}")
                                 st.write(f"📋 **維修項目**：{r['service']}")
                     else:
-                        st.warning(f"查無包含「{query}」的車牌預約紀錄！")
+                        st.warning(f"查無車牌包含「{raw_query}」的預約紀錄！")
 
         except Exception as e:
             st.error(f"❌ 下載試算表失敗，請確認網路連線或權限設定：{e}")

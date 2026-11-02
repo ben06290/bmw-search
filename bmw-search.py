@@ -29,7 +29,6 @@ def clean_plate(plate_str):
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
     if not s or len(s) < 5:
         return ""
-    # 標準車牌格式化 (帶連字符)
     if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
         return f"{s[:3]}-{s[3:]}"
     elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
@@ -46,9 +45,31 @@ def format_time_val(t_val):
             return f"{parts[0].zfill(2)}:{parts[1].zfill(2)}"
     return s
 
+def extract_month_from_sheets(sheet_names):
+    """從工作表名稱中辨識月份 (例如 1023 -> 10月, 10月23日 -> 10月)"""
+    for name in sheet_names:
+        if "空白" in name or "副本" in name:
+            continue
+        # 尋找 4 位數月份日 (例如 1023)
+        m = re.search(r"(\d{1,2})(\d{2})", name)
+        if m:
+            month = int(m.group(1))
+            if 1 <= month <= 12:
+                return f"{month} 月"
+        # 尋找如 10/23 或 10月
+        m2 = re.search(r"(\d{1,2})[/月]", name)
+        if m2:
+            month = int(m2.group(1))
+            if 1 <= month <= 12:
+                return f"{month} 月"
+    return "當月"
+
 def parse_all_records(excel_bytes):
     xls = pd.ExcelFile(excel_bytes)
     all_records = []
+
+    # 自動判斷這張預約表是幾月份
+    detected_month = extract_month_from_sheets(xls.sheet_names)
 
     for sheet_name in xls.sheet_names:
         if "空白" in sheet_name or "副本" in sheet_name:
@@ -106,7 +127,7 @@ def parse_all_records(excel_bytes):
         except Exception:
             continue
 
-    return all_records
+    return all_records, detected_month
 
 # 介面流程
 input_url = st.text_input(
@@ -115,7 +136,6 @@ input_url = st.text_input(
 )
 
 if input_url:
-    # 純化 URL，精準抽取 Spreadsheet ID
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", input_url)
     if not match:
         st.error("❌ 無法辨識此 Google 試算表網址，請確認網址格式。")
@@ -128,25 +148,22 @@ if input_url:
             with urllib.request.urlopen(req, timeout=60) as response:
                 content = response.read()
 
-            records = parse_all_records(io.BytesIO(content))
+            records, detected_month = parse_all_records(io.BytesIO(content))
 
             if not records:
                 st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料，請檢查試算表權限是否已設為「知道連結的人皆可檢視」。")
             else:
-                st.success(f"✅ 預約表載入成功！全表共解析出 {len(records)} 筆預約紀錄。")
+                # 顯示解析成功訊息並明確標記是「幾月」的預約表
+                st.success(f"✅ 預約表載入成功！這是【{detected_month}】的預約表，全表共解析出 {len(records)} 筆預約紀錄。")
 
                 raw_query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：EBE-5698、ebe5698、5698)：").strip()
 
                 if raw_query:
-                    # 將搜尋字串純化 (轉大寫、去空格、去連字符)
                     clean_q = raw_query.upper().replace(" ", "").replace("-", "")
 
                     results = []
                     for r in records:
-                        # 嚴格只針對車牌欄位 (rec['plate']) 進行純化比對
                         rec_plate_clean = r["plate"].upper().replace(" ", "").replace("-", "")
-                        
-                        # 符合任一條件即命中 (包含純化後車牌或標準格式車牌)
                         if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
                             results.append(r)
 

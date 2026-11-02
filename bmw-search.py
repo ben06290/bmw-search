@@ -53,9 +53,7 @@ def clean_phone(raw_val):
 
 def is_plate_format(val_str):
     s = re.sub(r"[^A-Za-z0-9]", "", safe_str(val_str)).upper()
-    # 只要包含英數且長度介於 5 到 8 碼，就是車牌
     if 5 <= len(s) <= 8 and any(c.isalpha() for c in s) and any(c.isdigit() for c in s):
-        # 格式化輸出
         if len(s) == 7 and s[:3].isalpha() and s[3:].isdigit():
             return True, f"{s[:3]}-{s[3:]}"
         elif len(s) == 6 and s[:2].isalpha() and s[2:].isdigit():
@@ -109,29 +107,24 @@ def fetch_and_parse(target_url):
                 if len(df) < 2:
                     continue
 
-                # 逐列檢查試算表（全面搜尋，不設定限制性的步階）
                 for i in range(len(df)):
                     row = df.iloc[i]
-                    # 搜尋這一列中所有儲存格，找尋車牌
                     for col_idx in range(len(row)):
                         cell_val = row.iloc[col_idx]
                         is_plate, plate_num = is_plate_format(cell_val)
                         if is_plate:
-                            # 抓到車牌後，從同列與下一列收集周圍的相關資訊
                             seq_val = safe_str(row.iloc[0]) if col_idx > 0 else ""
                             time_val = format_time_val(row.iloc[1]) if len(row) > 1 else ""
                             
-                            # 尋找電話號碼 (同列或下一列)
+                            # 尋找電話號碼
                             phone_val = ""
                             next_row = df.iloc[i + 1] if i + 1 < len(df) else None
                             
-                            # 先找同列
                             for c in range(len(row)):
                                 p = clean_phone(row.iloc[c])
                                 if len(p) >= 9:
                                     phone_val = p
                                     break
-                            # 同列沒找到再找下一列
                             if not phone_val and next_row is not None:
                                 for c in range(len(next_row)):
                                     p = clean_phone(next_row.iloc[c])
@@ -139,16 +132,31 @@ def fetch_and_parse(target_url):
                                         phone_val = p
                                         break
 
-                            # 接待與維修項目 (盡量抓非空字串)
-                            advisor = safe_str(row.iloc[16]) if len(row) > 16 else (safe_str(row.iloc[6]) if len(row) > 6 else "")
-                            service = safe_str(row.iloc[5]) if len(row) > 5 else (safe_str(row.iloc[7]) if len(row) > 7 else "")
-                            name_val = safe_str(row.iloc[3]) if len(row) > 3 else ""
-                            model_val = safe_str(row.iloc[4]) if len(row) > 4 else ""
+                            # 💡【精準修正】依照一般預表格式鎖定欄位與清洗接待人員名稱
+                            is_general = col_idx >= 15 # 判斷為一般維修或快保
+                            
+                            if not is_general:
+                                # 快保區塊
+                                advisor_raw = safe_str(row.iloc[16]) if len(row) > 16 else ""
+                                service_raw = safe_str(row.iloc[5]) if len(row) > 5 else ""
+                                model_val = safe_str(row.iloc[4]) if len(row) > 4 else ""
+                            else:
+                                # 一般維修區塊
+                                advisor_raw = safe_str(row.iloc[34]) if len(row) > 34 else ""
+                                service_raw = safe_str(row.iloc[23]) if len(row) > 23 else ""
+                                model_val = safe_str(row.iloc[22]) if len(row) > 22 else ""
 
-                            if "取消" not in advisor and "取消" not in service:
+                            name_val = safe_str(row.iloc[3] if not is_general else row.iloc[21])
+
+                            # 清洗接待人員欄位（如果抓到備註，只取名字或特定代號，如：豐、豪、嘉、孟...等單字或常見名字）
+                            advisor = advisor_raw.split("/")[0].strip() if advisor_raw else ""
+                            if len(advisor) > 4: # 如果抓出來太長，可能抓錯欄位，嘗試從特定常用欄位再找一次
+                                advisor = advisor_raw[0:2]
+
+                            if "取消" not in advisor_raw and "取消" not in service_raw:
                                 all_records.append({
                                     "sheet": sheet_name,
-                                    "type": "快保" if col_idx < 10 else "一般",
+                                    "type": "一般" if is_general else "快保",
                                     "seq": seq_val,
                                     "time": time_val,
                                     "plate": plate_num,
@@ -156,9 +164,9 @@ def fetch_and_parse(target_url):
                                     "name": name_val,
                                     "model": model_val,
                                     "advisor": advisor,
-                                    "service": service
+                                    "service": service_raw
                                 })
-                            break # 該列已找到車牌，處理下一列
+                            break 
             except Exception:
                 continue
 
@@ -216,7 +224,7 @@ st.markdown("---")
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
-    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BWY-0125、bwy0125、0125").strip()
+    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BXZ-9508、bxz9508、9508").strip()
     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
 if submit_button or raw_query:

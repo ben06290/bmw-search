@@ -52,24 +52,22 @@ def clean_phone(raw_val):
         return "0" + digits
     return digits
 
-# 💡【核心修復】完全放寬車牌檢查，只要不是空的且長度合理就抓進來！
+# 💡【修復1】完全放寬車牌，絕不刪除任何有資料的車牌
 def is_valid_plate(plate_str):
-    s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
-    if len(s) < 3 or len(s) > 10:
+    s = safe_str(plate_str).upper()
+    clean_s = re.sub(r"[^A-ZA-Z0-9]", "", s)
+    if len(clean_s) < 2 or len(clean_s) > 12:
         return False, ""
     
-    # 標準 7 碼 (如 BWY-0125 -> BWY-0125)
-    if len(s) == 7 and s[:3].isalpha() and s[3:].isdigit():
-        return True, f"{s[:3]}-{s[3:]}"
-    # 標準 6 碼 (如 AB-1234 -> AB-1234)
-    elif len(s) == 6 and s[:2].isalpha() and s[2:].isdigit():
-        return True, f"{s[:2]}-{s[2:]}"
-    # 舊式 6 碼 (如 1234-AB -> 1234-AB)
-    elif len(s) == 6 and s[:4].isdigit() and s[4:].isalpha():
-        return True, f"{s[:4]}-{s[4:]}"
+    # 格式化顯示 (有英有數才加短橫線)
+    if len(clean_s) == 7 and clean_s[:3].isalpha() and clean_s[3:].isdigit():
+        return True, f"{clean_s[:3]}-{clean_s[3:]}"
+    elif len(clean_s) == 6 and clean_s[:2].isalpha() and clean_s[2:].isdigit():
+        return True, f"{clean_s[:2]}-{clean_s[2:]}"
+    elif len(clean_s) == 6 and clean_s[:4].isdigit() and clean_s[4:].isalpha():
+        return True, f"{clean_s[:4]}-{clean_s[4:]}"
     
-    # 其他格式直接原樣保留，絕不攔截丟棄
-    return True, safe_str(plate_str).upper()
+    return True, s
 
 def format_time_val(t_val):
     s = safe_str(t_val)
@@ -124,11 +122,12 @@ def fetch_and_parse(target_url):
                     r1 = df.iloc[i]
                     r2 = df.iloc[i + 1]
 
-                    # 1. 快保
+                    # 1. 快保 (擴大欄位搜尋範圍 col_idx 0~8)
                     seq_kb = safe_str(r1.iloc[0]) if len(r1) > 0 else ""
                     if seq_kb.replace(".", "").isdigit():
-                        for col_idx in range(1, min(6, len(r1))):
-                            ok, formatted_plate = is_valid_plate(r1.iloc[col_idx])
+                        for col_idx in range(1, min(8, len(r1))):
+                            cell_val = r1.iloc[col_idx]
+                            ok, formatted_plate = is_valid_plate(cell_val)
                             if ok:
                                 advisor_kb = safe_str(r1.iloc[16]) if len(r1) > 16 else ""
                                 service_kb = safe_str(r1.iloc[5]) if len(r1) > 5 else ""
@@ -147,12 +146,13 @@ def fetch_and_parse(target_url):
                                     })
                                 break
 
-                    # 2. 一般維修
+                    # 2. 一般維修 (擴大欄位搜尋範圍 col_idx 18~26)
                     if len(r1) > 18:
                         seq_yb = safe_str(r1.iloc[18])
                         if seq_yb.replace(".", "").isdigit():
-                            for col_idx in range(19, min(23, len(r1))):
-                                ok, formatted_plate = is_valid_plate(r1.iloc[col_idx])
+                            for col_idx in range(19, min(26, len(r1))):
+                                cell_val = r1.iloc[col_idx]
+                                ok, formatted_plate = is_valid_plate(cell_val)
                                 if ok:
                                     advisor_yb = safe_str(r1.iloc[34]) if len(r1) > 34 else ""
                                     service_yb = safe_str(r1.iloc[23]) if len(r1) > 23 else ""
@@ -223,26 +223,26 @@ elif st.session_state.load_status.startswith("error"):
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 (雙向模糊搜尋) ---
+# --- 2. 搜尋區塊 (雙向清理的比對) ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
     raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BWY-0125、bwy0125、0125").strip()
     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
-if submit_button and raw_query:
+if submit_button or raw_query:
     if not st.session_state.records:
         st.warning("⚠️ 請先在上方點擊「📥 確定載入試算表」！")
-    else:
-        # 去除關鍵字中的非英數字（如點、橫槓、空格）並轉大寫
+    elif raw_query:
+        # 只保留純英數字比對
         clean_q = re.sub(r"[^A-Za-z0-9]", "", raw_query).upper()
 
         results = []
         for r in st.session_state.records:
             rec_plate_clean = re.sub(r"[^A-Za-z0-9]", "", r["plate"]).upper()
             
-            # 💡【核心修復】只要清乾淨後的關鍵字在清乾淨後的車牌裡，就一律命中！
-            if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
+            # 只要清除符號後的關鍵字包含在車牌裡即命中
+            if clean_q and clean_q in rec_plate_clean:
                 results.append(r)
 
         if results:

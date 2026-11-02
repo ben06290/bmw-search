@@ -52,18 +52,24 @@ def clean_phone(raw_val):
         return "0" + digits
     return digits
 
+# 💡【核心修復】完全放寬車牌檢查，只要不是空的且長度合理就抓進來！
 def is_valid_plate(plate_str):
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
-    if len(s) < 4 or len(s) > 10:
+    if len(s) < 3 or len(s) > 10:
         return False, ""
-
-    if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
+    
+    # 標準 7 碼 (如 BWY-0125 -> BWY-0125)
+    if len(s) == 7 and s[:3].isalpha() and s[3:].isdigit():
         return True, f"{s[:3]}-{s[3:]}"
-    elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
+    # 標準 6 碼 (如 AB-1234 -> AB-1234)
+    elif len(s) == 6 and s[:2].isalpha() and s[2:].isdigit():
         return True, f"{s[:2]}-{s[2:]}"
-    elif len(s) == 6 and s[:4].isdigit() and s[4:].isalnum():
+    # 舊式 6 碼 (如 1234-AB -> 1234-AB)
+    elif len(s) == 6 and s[:4].isdigit() and s[4:].isalpha():
         return True, f"{s[:4]}-{s[4:]}"
-    return True, s
+    
+    # 其他格式直接原樣保留，絕不攔截丟棄
+    return True, safe_str(plate_str).upper()
 
 def format_time_val(t_val):
     s = safe_str(t_val)
@@ -118,7 +124,7 @@ def fetch_and_parse(target_url):
                     r1 = df.iloc[i]
                     r2 = df.iloc[i + 1]
 
-                    # 快保
+                    # 1. 快保
                     seq_kb = safe_str(r1.iloc[0]) if len(r1) > 0 else ""
                     if seq_kb.replace(".", "").isdigit():
                         for col_idx in range(1, min(6, len(r1))):
@@ -141,7 +147,7 @@ def fetch_and_parse(target_url):
                                     })
                                 break
 
-                    # 一般維修
+                    # 2. 一般維修
                     if len(r1) > 18:
                         seq_yb = safe_str(r1.iloc[18])
                         if seq_yb.replace(".", "").isdigit():
@@ -171,7 +177,7 @@ def fetch_and_parse(target_url):
     except Exception as e:
         return [], "未知", str(e)
 
-# Session State
+# 初始化 Session State
 if "records" not in st.session_state:
     st.session_state.records = []
 if "detected_month" not in st.session_state:
@@ -217,7 +223,7 @@ elif st.session_state.load_status.startswith("error"):
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 (優化比對邏輯) ---
+# --- 2. 搜尋區塊 (雙向模糊搜尋) ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
@@ -228,15 +234,14 @@ if submit_button and raw_query:
     if not st.session_state.records:
         st.warning("⚠️ 請先在上方點擊「📥 確定載入試算表」！")
     else:
-        # 去除搜尋字串中的空格與橫槓，統一轉大寫
+        # 去除關鍵字中的非英數字（如點、橫槓、空格）並轉大寫
         clean_q = re.sub(r"[^A-Za-z0-9]", "", raw_query).upper()
 
         results = []
         for r in st.session_state.records:
-            # 去除資料中車牌的空格與橫槓
             rec_plate_clean = re.sub(r"[^A-Za-z0-9]", "", r["plate"]).upper()
             
-            # 比對：純數字/字母比對，或原本格式比對
+            # 💡【核心修復】只要清乾淨後的關鍵字在清乾淨後的車牌裡，就一律命中！
             if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
                 results.append(r)
 

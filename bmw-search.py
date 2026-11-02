@@ -54,11 +54,9 @@ def clean_phone(raw_val):
 
 def is_valid_plate(plate_str):
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
-    # 放寬長度限制（4 ~ 10 碼），避免過濾掉特殊或舊式車牌
     if len(s) < 4 or len(s) > 10:
         return False, ""
 
-    # 自動格式化常見車牌（ABC-1234, AB-1234, 1234-AB）
     if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
         return True, f"{s[:3]}-{s[3:]}"
     elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
@@ -116,12 +114,11 @@ def fetch_and_parse(target_url):
                 if len(df) < 2:
                     continue
 
-                # 動態尋找起始列，避免標頭列數變動導致讀取失敗
                 for i in range(0, len(df) - 1):
                     r1 = df.iloc[i]
                     r2 = df.iloc[i + 1]
 
-                    # 1. 快保區塊檢測
+                    # 快保
                     seq_kb = safe_str(r1.iloc[0]) if len(r1) > 0 else ""
                     if seq_kb.replace(".", "").isdigit():
                         for col_idx in range(1, min(6, len(r1))):
@@ -144,7 +141,7 @@ def fetch_and_parse(target_url):
                                     })
                                 break
 
-                    # 2. 一般維修區塊檢測
+                    # 一般維修
                     if len(r1) > 18:
                         seq_yb = safe_str(r1.iloc[18])
                         if seq_yb.replace(".", "").isdigit():
@@ -174,7 +171,7 @@ def fetch_and_parse(target_url):
     except Exception as e:
         return [], "未知", str(e)
 
-# 初始化 Session State 儲存快取紀錄
+# Session State
 if "records" not in st.session_state:
     st.session_state.records = []
 if "detected_month" not in st.session_state:
@@ -182,7 +179,7 @@ if "detected_month" not in st.session_state:
 if "load_status" not in st.session_state:
     st.session_state.load_status = ""
 
-# --- 1. 網址設定與確定載入區塊 ---
+# --- 1. 載入區塊 ---
 selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
 
 with st.form(key="url_form"):
@@ -194,7 +191,6 @@ with st.form(key="url_form"):
 
     btn_load_url = st.form_submit_button(label="📥 確定載入試算表")
 
-# 按下「確定載入試算表」時執行解析
 if btn_load_url:
     if not input_url.strip():
         st.session_state.load_status = "error: 請先輸入或選擇有效的 Google 預約表網址！"
@@ -212,32 +208,35 @@ if btn_load_url:
                 st.session_state.records = recs
                 st.session_state.detected_month = mon
 
-# 狀態提示
 if st.session_state.load_status == "success":
     st.success(f"✅ 預約表載入成功！這是【{st.session_state.detected_month}】的預約表，共解析出 {len(st.session_state.records)} 筆紀錄。")
 elif st.session_state.load_status == "empty":
-    st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料。請確認：\n1. Google 試算表共用權限是否已開啟為「知道連結的人皆可檢視」。\n2. 工作表名稱是否被命名為「空白」或「副本」（此類名稱會自動被過濾）。")
+    st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料。")
 elif st.session_state.load_status.startswith("error"):
     st.error(f"❌ 讀取失敗：{st.session_state.load_status.replace('error: ', '')}")
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 ---
+# --- 2. 搜尋區塊 (優化比對邏輯) ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
-    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：EBE-5698、ebe5698、5698").strip()
+    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BWY-0125、bwy0125、0125").strip()
     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
-if submit_button or raw_query:
+if submit_button and raw_query:
     if not st.session_state.records:
-        st.warning("⚠️ 請先在上方選擇月份/貼上網址，並點擊「📥 確定載入試算表」！")
-    elif raw_query:
-        clean_q = raw_query.upper().replace(" ", "").replace("-", "")
+        st.warning("⚠️ 請先在上方點擊「📥 確定載入試算表」！")
+    else:
+        # 去除搜尋字串中的空格與橫槓，統一轉大寫
+        clean_q = re.sub(r"[^A-Za-z0-9]", "", raw_query).upper()
 
         results = []
         for r in st.session_state.records:
-            rec_plate_clean = r["plate"].upper().replace(" ", "").replace("-", "")
+            # 去除資料中車牌的空格與橫槓
+            rec_plate_clean = re.sub(r"[^A-Za-z0-9]", "", r["plate"]).upper()
+            
+            # 比對：純數字/字母比對，或原本格式比對
             if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
                 results.append(r)
 

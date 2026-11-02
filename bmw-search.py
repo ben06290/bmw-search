@@ -9,13 +9,11 @@ st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered",
 # 自訂 CSS：放大手機輸入框字體與優化按鈕樣式
 st.markdown("""
     <style>
-    /* 放大搜尋輸入框的字體與外觀 */
     .stTextInput input {
         font-size: 20px !important;
         font-weight: bold !important;
         padding: 10px !important;
     }
-    /* 調整確定搜尋按鈕樣式 */
     .stButton>button {
         font-size: 18px !important;
         font-weight: bold !important;
@@ -27,6 +25,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚗 BMW 預約車輛快速查詢")
+
+# 預設月份快速選擇網址對照
+MONTH_URLS = {
+    "2026年10月預約表": "https://docs.google.com/spreadsheets/d/1obpjM1JB8c5wSyC0WNL6qGc-xyo5qDhhF1TiuFPtAxo/edit?gid=566275317#gid=566275317",
+    "2026年11月預約表": "https://docs.google.com/spreadsheets/d/1cUzfaS_SN7sYhmWDVZv__yB92JY8pXjfeb1PjrvB8dc/edit?gid=566275317#gid=566275317",
+    "2026年12月預約表": "https://docs.google.com/spreadsheets/d/15oNLBZ89FMkPtD5Wn9sslYSwF0szpO2ggmp0YVqWyHI/edit?gid=1276743763#gid=1276743763",
+    "自訂其他網址": ""
+}
 
 def safe_str(val):
     if val is None or pd.isna(val):
@@ -46,18 +52,15 @@ def clean_phone(raw_val):
     return digits
 
 def is_valid_plate(plate_str):
-    """精準判斷是否為台灣車牌格式 (例如 ABC-1234, 1234-AB, AB-123 等)"""
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
     if len(s) < 5 or len(s) > 8:
         return False, ""
     
-    # 必須包含英文與數字組合
     has_alpha = any(c.isalpha() for c in s)
     has_digit = any(c.isdigit() for c in s)
     if not (has_alpha and has_digit):
         return False, ""
 
-    # 格式化輸出
     if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
         return True, f"{s[:3]}-{s[3:]}"
     elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
@@ -159,18 +162,23 @@ def parse_all_records(excel_bytes):
 
     return all_records, detected_month
 
-# 介面流程
-input_url = st.text_input(
-    "請貼上 Google 預約表網址：", 
-    value="https://docs.google.com/spreadsheets/d/1cUzfaS_SN7sYhmWDVZv__yB92JY8pXjfeb1PjrvB8dc/edit?gid=566275317#gid=566275317"
-)
+# --- 介面流程 ---
+selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
+
+if selected_option == "自訂其他網址":
+    input_url = st.text_input("請貼上 Google 預約表網址：", value="")
+else:
+    input_url = MONTH_URLS[selected_option]
+    st.caption(f"連結：`{input_url}`")
 
 if input_url:
+    # 純化抽離試算表 ID
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", input_url)
     if not match:
         st.error("❌ 無法辨識此 Google 試算表網址，請確認網址格式。")
     else:
         sheet_id = match.group(1)
+        # 強制構造標準匯出網址，忽略後方的 gid
         export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
 
         try:
@@ -185,12 +193,10 @@ if input_url:
             else:
                 st.success(f"✅ 預約表載入成功！這是【{detected_month}】的預約表，全表共解析出 {len(records)} 筆預約紀錄。")
 
-                # 表單容器：將輸入框與「確定搜尋」按鈕整合，提升手機點擊體驗
                 with st.form(key="search_form"):
                     raw_query = st.text_input("🔍 請輸入車牌號碼：", placeholder="例如：EBE-5698、ebe5698、5698").strip()
                     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
-                # 當點擊確定按鈕或在手機鍵盤按 Enter 時執行搜尋
                 if submit_button or raw_query:
                     if raw_query:
                         clean_q = raw_query.upper().replace(" ", "").replace("-", "")
@@ -198,7 +204,6 @@ if input_url:
                         results = []
                         for r in records:
                             rec_plate_clean = r["plate"].upper().replace(" ", "").replace("-", "")
-                            # 嚴格僅搜尋車牌
                             if clean_q in rec_plate_clean or raw_query.upper() in r["plate"].upper():
                                 results.append(r)
 

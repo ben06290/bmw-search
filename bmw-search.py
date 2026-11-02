@@ -181,32 +181,37 @@ if "detected_month" not in st.session_state:
 if "load_status" not in st.session_state:
     st.session_state.load_status = ""
 
-# --- 1. 網址設定與確定載入區塊 (Form 容器) ---
-with st.form(key="url_form"):
-    selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
+# --- 1. 網址設定與確定載入區塊 ---
+selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", list(MONTH_URLS.keys()))
 
+with st.form(key="url_form"):
     if selected_option == "自訂其他網址":
+        # 開放使用者自行輸入/貼上網址
         input_url = st.text_input("請貼上 Google 預約表網址：", value="")
     else:
-        input_url = MONTH_URLS[selected_option]
-        st.text_input("試算表網址：", value=input_url, key="readonly_url", disabled=True)
+        # 自動帶入下拉選單選擇的預設網址
+        default_url = MONTH_URLS[selected_option]
+        input_url = st.text_input("請確認預約表網址：", value=default_url)
 
     btn_load_url = st.form_submit_button(label="📥 確定載入試算表")
 
 # 按下「確定載入試算表」時執行解析
-if btn_load_url and input_url:
-    with st.spinner("正在下載並解析預約表資料，請稍候..."):
-        recs, mon, err = fetch_and_parse(input_url)
-        if err:
-            st.session_state.load_status = f"error: {err}"
-            st.session_state.records = []
-        elif not recs:
-            st.session_state.load_status = "empty"
-            st.session_state.records = []
-        else:
-            st.session_state.load_status = "success"
-            st.session_state.records = recs
-            st.session_state.detected_month = mon
+if btn_load_url:
+    if not input_url.strip():
+        st.session_state.load_status = "error: 請先輸入或選擇有效的 Google 預約表網址！"
+    else:
+        with st.spinner("正在下載並解析預約表資料，請稍候..."):
+            recs, mon, err = fetch_and_parse(input_url.strip())
+            if err:
+                st.session_state.load_status = f"error: {err}"
+                st.session_state.records = []
+            elif not recs:
+                st.session_state.load_status = "empty"
+                st.session_state.records = []
+            else:
+                st.session_state.load_status = "success"
+                st.session_state.records = recs
+                st.session_state.detected_month = mon
 
 # 狀態提示
 if st.session_state.load_status == "success":
@@ -227,7 +232,7 @@ with st.form(key="search_form"):
 
 if submit_button or raw_query:
     if not st.session_state.records:
-        st.warning("⚠️ 請先在上方選擇月份並點擊「📥 確定載入試算表」！")
+        st.warning("⚠️ 請先在上方選擇月份/貼上網址，並點擊「📥 確定載入試算表」！")
     elif raw_query:
         clean_q = raw_query.upper().replace(" ", "").replace("-", "")
 

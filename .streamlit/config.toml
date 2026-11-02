@@ -6,3 +6,7 @@ showSidebarNavigation = false
 
 [ui]
 hideTopBar = true
+
+[server]
+enableCORS = false
+enableXsrfProtection = true

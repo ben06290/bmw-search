@@ -124,4 +124,74 @@ def parse_all_records(excel_bytes):
                             all_records.append({
                                 "sheet": sheet_name,
                                 "type": "一般",
-                                "seq": str(seq
+                                "seq": str(seq_num_yb),
+                                "time": format_time_val(safe_get(r1, 19)),
+                                "plate": plate_yb,
+                                "phone": clean_phone(raw_phone_yb),
+                                "name": safe_get(r1, 21),
+                                "model": safe_get(r2, 22),
+                                "advisor": advisor_yb,
+                                "service": service_yb
+                            })
+        except Exception as err:
+            errors.append(f"工作表 {sheet_name} 解析失敗: {str(err)}")
+
+    return all_records, errors
+
+# 介面流程
+sheet_url = st.text_input("請貼上 Google 預約表網址：", value="https://docs.google.com/spreadsheets/d/1obpjM1JB8c5wSyC0WNL6qGc-xyo5qDhhF1TiuFPtAxo/edit")
+
+if sheet_url:
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
+    if not match:
+        st.error("無法辨識此 Google 試算表網址，請確認格式。")
+    else:
+        sheet_id = match.group(1)
+        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+
+        try:
+            req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=60) as response:
+                content = response.read()
+
+            records, parse_errors = parse_all_records(io.BytesIO(content))
+            
+            if parse_errors:
+                with st.expander("⚠️ 系統解析紀錄與警告"):
+                    for e in parse_errors:
+                        st.write(e)
+
+            if len(records) == 0:
+                st.error("⚠️ 預約表載入失敗，沒有解析到任何資料，請檢查上面展開的詳細錯誤！")
+            else:
+                st.success(f"預約表載入成功！共解析出 {len(records)} 筆車輛預約紀錄。")
+
+            query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：BFG-0989 或 0989)：").strip().upper().replace(" ", "").replace("-", "")
+
+            if query:
+                results = []
+                for rec in records:
+                    plate_clean = rec["plate"].replace("-", "")
+                    if query in plate_clean or query in rec["plate"]:
+                        results.append(rec)
+
+                if results:
+                    st.markdown(f"### 🎯 找到 {len(results)} 筆相符車牌紀錄：")
+                    for r in results:
+                        with st.expander(f"📅 預約日期：{r['sheet']} | 車牌：{r['plate']} ({r['type']})", expanded=True):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write(f"⏱️ **進廠時間**：{r['time']}")
+                                st.write(f"🚘 **車牌號碼**：{r['plate']}")
+                                st.write(f"👤 **車主姓名**：{r['name']}")
+                                st.write(f"📞 **電話號碼**：{r['phone']}")
+                            with col2:
+                                st.write(f"🏎️ **車型**：{r['model']}")
+                                st.write(f"👨‍💼 **接待人員**：{r['advisor']}")
+                                st.write(f"🛠️ **類別與序號**：{r['type']} #{r['seq']}")
+                            st.write(f"📋 **維修項目**：{r['service']}")
+                else:
+                    st.warning("查無此車牌的預約紀錄！")
+
+        except Exception as e:
+            st.error(f"下載或讀取資料失敗：{e}")

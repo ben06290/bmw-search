@@ -59,6 +59,7 @@ def is_valid_seq(seq_raw):
 def parse_all_records(excel_bytes):
     xls = pd.ExcelFile(excel_bytes)
     all_records = []
+    errors = []
 
     for sheet_name in xls.sheet_names:
         if "空白" in sheet_name or "副本" in sheet_name:
@@ -67,7 +68,6 @@ def parse_all_records(excel_bytes):
         try:
             df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
 
-            # 動態取得快保/一般上限（預設 46 與 14）
             max_kb, max_yb = 46, 14
             for r_idx in range(3, min(7, len(df))):
                 row = df.iloc[r_idx]
@@ -80,7 +80,6 @@ def parse_all_records(excel_bytes):
                 if m_yb:
                     max_yb = int(m_yb.group(1))
 
-            # 雙行掃描
             for i in range(7, len(df) - 1, 2):
                 r1 = df.iloc[i]
                 r2 = df.iloc[i + 1]
@@ -125,69 +124,4 @@ def parse_all_records(excel_bytes):
                             all_records.append({
                                 "sheet": sheet_name,
                                 "type": "一般",
-                                "seq": str(seq_num_yb),
-                                "time": format_time_val(safe_get(r1, 19)),
-                                "plate": plate_yb,
-                                "phone": clean_phone(raw_phone_yb),
-                                "name": safe_get(r1, 21),
-                                "model": safe_get(r2, 22),
-                                "advisor": advisor_yb,
-                                "service": service_yb
-                            })
-        except Exception:
-            continue
-
-    return all_records
-
-# 介面流程
-sheet_url = st.text_input("請貼上 Google 預約表網址：", value="https://docs.google.com/spreadsheets/d/1obpjM1JB8c5wSyC0WNL6qGc-xyo5qDhhF1TiuFPtAxo/edit?gid=566275317#gid=566275317")
-
-if sheet_url:
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
-    if not match:
-        st.error("無法辨識此 Google 試算表網址，請確認格式。")
-    else:
-        sheet_id = match.group(1)
-        export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-
-        try:
-            req = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=60) as response:
-                content = response.read()
-
-            records = parse_all_records(io.BytesIO(content))
-            
-            if len(records) == 0:
-                st.error("⚠️ 預約表載入失敗，沒有解析到任何資料，請確認試算表格式或連結！")
-            else:
-                st.success(f"預約表載入成功！共解析出 {len(records)} 筆車輛預約紀錄。")
-
-            query = st.text_input("🔍 請輸入車牌號碼進行查詢 (例如：BFG-0989 或 0989)：").strip().upper().replace(" ", "").replace("-", "")
-
-            if query:
-                results = []
-                for rec in records:
-                    plate_clean = rec["plate"].replace("-", "")
-                    if query in plate_clean or query in rec["plate"]:
-                        results.append(rec)
-
-                if results:
-                    st.markdown(f"### 🎯 找到 {len(results)} 筆相符車牌紀錄：")
-                    for r in results:
-                        with st.expander(f"📅 預約日期：{r['sheet']} | 車牌：{r['plate']} ({r['type']})", expanded=True):
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.write(f"⏱️ **進廠時間**：{r['time']}")
-                                st.write(f"🚘 **車牌號碼**：{r['plate']}")
-                                st.write(f"👤 **車主姓名**：{r['name']}")
-                                st.write(f"📞 **電話號碼**：{r['phone']}")
-                            with col2:
-                                st.write(f"🏎️ **車型**：{r['model']}")
-                                st.write(f"👨‍💼 **接待人員**：{r['advisor']}")
-                                st.write(f"🛠️ **類別與序號**：{r['type']} #{r['seq']}")
-                            st.write(f"📋 **維修項目**：{r['service']}")
-                else:
-                    st.warning("查無此車牌的預約紀錄！")
-
-        except Exception as e:
-            st.error(f"讀取資料失敗：{e}")
+                                "seq": str(seq

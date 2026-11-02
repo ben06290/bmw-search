@@ -6,8 +6,14 @@ import urllib.request
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
+# 隱藏 Streamlit 預設的 Share、GitHub 圖示、右上角選單及右下角 Manage app 按鈕
 st.markdown("""
     <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    .viewerBadge_container__1QSob, [data-testid="stDecoration"] {
+        display: none !important;
+    }
     .stTextInput input {
         font-size: 19px !important;
         font-weight: bold !important;
@@ -132,25 +138,22 @@ def fetch_and_parse(target_url):
                                         phone_val = p
                                         break
 
-                            # 💡【精準修正】依照一般預表格式鎖定欄位與清洗接待人員名稱
-                            is_general = col_idx >= 15 # 判斷為一般維修或快保
+                            is_general = col_idx >= 15 
                             
                             if not is_general:
-                                # 快保區塊
                                 advisor_raw = safe_str(row.iloc[16]) if len(row) > 16 else ""
                                 service_raw = safe_str(row.iloc[5]) if len(row) > 5 else ""
                                 model_val = safe_str(row.iloc[4]) if len(row) > 4 else ""
                             else:
-                                # 一般維修區塊
                                 advisor_raw = safe_str(row.iloc[34]) if len(row) > 34 else ""
                                 service_raw = safe_str(row.iloc[23]) if len(row) > 23 else ""
                                 model_val = safe_str(row.iloc[22]) if len(row) > 22 else ""
 
                             name_val = safe_str(row.iloc[3] if not is_general else row.iloc[21])
 
-                            # 清洗接待人員欄位（如果抓到備註，只取名字或特定代號，如：豐、豪、嘉、孟...等單字或常見名字）
+                            # 洗淨接待人員欄位（取斜線前或精確擷取單字）
                             advisor = advisor_raw.split("/")[0].strip() if advisor_raw else ""
-                            if len(advisor) > 4: # 如果抓出來太長，可能抓錯欄位，嘗試從特定常用欄位再找一次
+                            if len(advisor) > 4:
                                 advisor = advisor_raw[0:2]
 
                             if "取消" not in advisor_raw and "取消" not in service_raw:
@@ -224,7 +227,7 @@ st.markdown("---")
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):
-    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BXZ-9508、bxz9508、9508").strip()
+    raw_query = st.text_input("請輸入車牌號碼：", placeholder="例如：BWY-0125、bwy0125、0125").strip()
     submit_button = st.form_submit_button(label="🔍 確定搜尋")
 
 if submit_button or raw_query:

@@ -54,14 +54,11 @@ def clean_phone(raw_val):
 
 def is_valid_plate(plate_str):
     s = safe_str(plate_str).upper().replace(" ", "").replace("-", "")
-    if len(s) < 5 or len(s) > 8:
-        return False, ""
-    
-    has_alpha = any(c.isalpha() for c in s)
-    has_digit = any(c.isdigit() for c in s)
-    if not (has_alpha and has_digit):
+    # 放寬長度限制（4 ~ 10 碼），避免過濾掉特殊或舊式車牌
+    if len(s) < 4 or len(s) > 10:
         return False, ""
 
+    # 自動格式化常見車牌（ABC-1234, AB-1234, 1234-AB）
     if len(s) == 7 and s[:3].isalnum() and s[3:].isdigit():
         return True, f"{s[:3]}-{s[3:]}"
     elif len(s) == 6 and s[:2].isalnum() and s[2:].isdigit():
@@ -116,52 +113,56 @@ def fetch_and_parse(target_url):
                 continue
             try:
                 df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-                for i in range(6, len(df) - 1, 2):
+                if len(df) < 2:
+                    continue
+
+                # 動態尋找起始列，避免標頭列數變動導致讀取失敗
+                for i in range(0, len(df) - 1):
                     r1 = df.iloc[i]
                     r2 = df.iloc[i + 1]
 
-                    # 1. 快保
-                    seq_kb = safe_str(r1.iloc[0])
+                    # 1. 快保區塊檢測
+                    seq_kb = safe_str(r1.iloc[0]) if len(r1) > 0 else ""
                     if seq_kb.replace(".", "").isdigit():
-                        for col_idx in range(2, min(6, len(r1))):
+                        for col_idx in range(1, min(6, len(r1))):
                             ok, formatted_plate = is_valid_plate(r1.iloc[col_idx])
                             if ok:
-                                advisor_kb = safe_str(r1.iloc[16] if 16 < len(r1) else "")
-                                service_kb = safe_str(r1.iloc[5] if 5 < len(r1) else "")
+                                advisor_kb = safe_str(r1.iloc[16]) if len(r1) > 16 else ""
+                                service_kb = safe_str(r1.iloc[5]) if len(r1) > 5 else ""
                                 if "取消" not in advisor_kb and "取消" not in service_kb:
                                     all_records.append({
                                         "sheet": sheet_name,
                                         "type": "快保",
                                         "seq": seq_kb,
-                                        "time": format_time_val(r1.iloc[1]),
+                                        "time": format_time_val(r1.iloc[1]) if len(r1) > 1 else "",
                                         "plate": formatted_plate,
-                                        "phone": clean_phone(r2.iloc[col_idx + 1] if (col_idx + 1) < len(r2) else ""),
-                                        "name": safe_str(r1.iloc[3]),
-                                        "model": safe_str(r2.iloc[4] if 4 < len(r2) else ""),
+                                        "phone": clean_phone(r2.iloc[col_idx + 1]) if len(r2) > (col_idx + 1) else "",
+                                        "name": safe_str(r1.iloc[3]) if len(r1) > 3 else "",
+                                        "model": safe_str(r2.iloc[4]) if len(r2) > 4 else "",
                                         "advisor": advisor_kb,
                                         "service": service_kb
                                     })
                                 break
 
-                    # 2. 一般
+                    # 2. 一般維修區塊檢測
                     if len(r1) > 18:
                         seq_yb = safe_str(r1.iloc[18])
                         if seq_yb.replace(".", "").isdigit():
                             for col_idx in range(19, min(23, len(r1))):
                                 ok, formatted_plate = is_valid_plate(r1.iloc[col_idx])
                                 if ok:
-                                    advisor_yb = safe_str(r1.iloc[34] if 34 < len(r1) else "")
-                                    service_yb = safe_str(r1.iloc[23] if 23 < len(r1) else "")
+                                    advisor_yb = safe_str(r1.iloc[34]) if len(r1) > 34 else ""
+                                    service_yb = safe_str(r1.iloc[23]) if len(r1) > 23 else ""
                                     if "取消" not in advisor_yb and "取消" not in service_yb:
                                         all_records.append({
                                             "sheet": sheet_name,
                                             "type": "一般",
                                             "seq": seq_yb,
-                                            "time": format_time_val(r1.iloc[19]),
+                                            "time": format_time_val(r1.iloc[19]) if len(r1) > 19 else "",
                                             "plate": formatted_plate,
-                                            "phone": clean_phone(r2.iloc[col_idx + 1] if (col_idx + 1) < len(r2) else ""),
-                                            "name": safe_str(r1.iloc[21] if 21 < len(r1) else ""),
-                                            "model": safe_str(r2.iloc[22] if 22 < len(r2) else ""),
+                                            "phone": clean_phone(r2.iloc[col_idx + 1]) if len(r2) > (col_idx + 1) else "",
+                                            "name": safe_str(r1.iloc[21]) if len(r1) > 21 else "",
+                                            "model": safe_str(r2.iloc[22]) if len(r2) > 22 else "",
                                             "advisor": advisor_yb,
                                             "service": service_yb
                                         })
@@ -186,10 +187,8 @@ selected_option = st.selectbox("📅 請選擇要查詢的月份預約表：", l
 
 with st.form(key="url_form"):
     if selected_option == "自訂其他網址":
-        # 開放使用者自行輸入/貼上網址
         input_url = st.text_input("請貼上 Google 預約表網址：", value="")
     else:
-        # 自動帶入下拉選單選擇的預設網址
         default_url = MONTH_URLS[selected_option]
         input_url = st.text_input("請確認預約表網址：", value=default_url)
 
@@ -217,13 +216,13 @@ if btn_load_url:
 if st.session_state.load_status == "success":
     st.success(f"✅ 預約表載入成功！這是【{st.session_state.detected_month}】的預約表，共解析出 {len(st.session_state.records)} 筆紀錄。")
 elif st.session_state.load_status == "empty":
-    st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料，請確認網址或權限是否為「知道連結的人皆可檢視」。")
+    st.warning("⚠️ 試算表讀取完畢，但未解析出有效資料。請確認：\n1. Google 試算表共用權限是否已開啟為「知道連結的人皆可檢視」。\n2. 工作表名稱是否被命名為「空白」或「副本」（此類名稱會自動被過濾）。")
 elif st.session_state.load_status.startswith("error"):
     st.error(f"❌ 讀取失敗：{st.session_state.load_status.replace('error: ', '')}")
 
 st.markdown("---")
 
-# --- 2. 搜尋區塊 (表單與確定搜尋按鈕) ---
+# --- 2. 搜尋區塊 ---
 st.subheader("🔍 車牌號碼快速搜尋")
 
 with st.form(key="search_form"):

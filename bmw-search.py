@@ -3,21 +3,17 @@ import pandas as pd
 import re
 import io
 import urllib.request
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
-# 隱藏電腦與手機版所有 Streamlit 預設選單、頂部裝飾、以及右下角的 Hosted with Streamlit 標誌
+# 1. 隱藏預設選單、頂部裝飾與頁尾
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
-    .viewerBadge_container__1QSob, [data-testid="stDecoration"], footer {
+    [data-testid="stDecoration"], footer {
         display: none !important;
-    }
-    /* 針對手機版右下角懸浮按鈕（Hosted with Streamlit）的隱藏防護 */
-    div[class*="viewerBadge"] {
-        display: none !important;
-        visibility: hidden !important;
     }
     .stTextInput input {
         font-size: 19px !important;
@@ -35,6 +31,20 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# 2. 使用 JavaScript 強制清除右下角的「Hosted with Streamlit」按鈕
+components.html("""
+    <script>
+    const hideBadge = () => {
+        const targetElements = window.parent.document.querySelectorAll('a[href*="streamlit.io"], div[class*="viewerBadge"]');
+        targetElements.forEach(el => {
+            el.style.display = 'none';
+        });
+    };
+    window.addEventListener('load', hideBadge);
+    setInterval(hideBadge, 500);
+    </script>
+""", height=0, width=0)
 
 st.title("🚗 BMW 預約車輛快速查詢")
 

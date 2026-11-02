@@ -7,13 +7,22 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="BMW 預約車輛快速查詢", layout="centered", page_icon="🚗")
 
-# 1. 隱藏預設選單、頂部裝飾與頁尾
+# 1. 隱藏預設選單、頂部裝飾，並利用絕對定位將右下角標誌徹底移出畫面與隱藏
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     [data-testid="stDecoration"], footer {
         display: none !important;
+    }
+    /* 暴力移出畫面與隱藏右下角 Streamlit 懸浮標誌 */
+    .viewerBadge_container__1QSob, div[class*="viewerBadge"], a[href*="streamlit.io"] {
+        position: fixed !important;
+        bottom: -9999px !important;
+        right: -9999px !important;
+        display: none !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
     }
     .stTextInput input {
         font-size: 19px !important;
@@ -32,17 +41,17 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 2. 使用 JavaScript 強制清除右下角的「Hosted with Streamlit」按鈕
+# 2. 透過 JavaScript 定期自動清除 DOM 中的標誌元素
 components.html("""
     <script>
     const hideBadge = () => {
         const targetElements = window.parent.document.querySelectorAll('a[href*="streamlit.io"], div[class*="viewerBadge"]');
         targetElements.forEach(el => {
-            el.style.display = 'none';
+            el.remove();
         });
     };
     window.addEventListener('load', hideBadge);
-    setInterval(hideBadge, 500);
+    setInterval(hideBadge, 300);
     </script>
 """, height=0, width=0)
 

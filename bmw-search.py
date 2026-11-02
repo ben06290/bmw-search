@@ -1,4 +1,3 @@
-Python
 import streamlit as st
 import pandas as pd
 import re
@@ -41,6 +40,15 @@ def clean_plate(plate_str):
         return f"{s[:2]}-{s[2:]}"
     return s
 
+def clean_advisor_name(raw_str):
+    if not raw_str:
+        return ""
+    s = str(raw_str).strip()
+    parts = re.split(r"[\s\(/（]", s)
+    first_part = parts[0]
+    first_part = re.sub(r"改\d*(/\d*)*", "", first_part)
+    return first_part if first_part else s
+
 def format_time_val(t_val):
     if not t_val:
         return ""
@@ -68,7 +76,6 @@ def parse_all_records(excel_bytes):
         try:
             df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
 
-            # 解析上限
             max_kb, max_yb = 46, 14
             for r_idx in range(3, min(7, len(df))):
                 row = df.iloc[r_idx]
@@ -81,7 +88,6 @@ def parse_all_records(excel_bytes):
                 if m_yb:
                     max_yb = int(m_yb.group(1))
 
-            # 解析雙列架構
             for i in range(7, len(df) - 1, 2):
                 r1 = df.iloc[i]
                 r2 = df.iloc[i + 1]
@@ -94,6 +100,7 @@ def parse_all_records(excel_bytes):
                         plate = clean_plate(safe_get(r1, 2))
                         if plate:
                             raw_phone = r2[3] if 3 in r2.index else None
+                            raw_advisor_kb = safe_get(r1, 16) # Q 欄
                             all_records.append({
                                 "sheet": sheet_name,
                                 "type": "快保",
@@ -103,8 +110,8 @@ def parse_all_records(excel_bytes):
                                 "phone": clean_phone(raw_phone),
                                 "name": safe_get(r1, 3),
                                 "model": safe_get(r2, 4),
-                                "advisor": safe_get(r1, 16),
-                                "service": safe_get(r1, 5)
+                                "advisor": clean_advisor_name(raw_advisor_kb),
+                                "service": safe_get(r1, 5) # F 欄
                             })
 
                 # 2. 一般 (右側)
@@ -115,6 +122,7 @@ def parse_all_records(excel_bytes):
                         plate_yb = clean_plate(safe_get(r1, 20))
                         if plate_yb:
                             raw_phone_yb = r2[21] if 21 in r2.index else None
+                            raw_advisor_yb = safe_get(r1, 34) # AI 欄
                             all_records.append({
                                 "sheet": sheet_name,
                                 "type": "一般",
@@ -124,8 +132,8 @@ def parse_all_records(excel_bytes):
                                 "phone": clean_phone(raw_phone_yb),
                                 "name": safe_get(r1, 21),
                                 "model": safe_get(r2, 22),
-                                "advisor": safe_get(r1, 34),
-                                "service": safe_get(r1, 23)
+                                "advisor": clean_advisor_name(raw_advisor_yb),
+                                "service": safe_get(r1, 23) # X 欄
                             })
         except Exception:
             continue
@@ -156,7 +164,6 @@ if sheet_url:
             if query:
                 results = []
                 for rec in records:
-                    # 嚴格只針對車牌欄位 (rec["plate"]) 進行比對
                     plate_clean = rec["plate"].replace("-", "")
                     if query in plate_clean or query in rec["plate"]:
                         results.append(rec)
